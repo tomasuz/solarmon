@@ -59,7 +59,7 @@ for section in settings.sections():
     })
 print('Done!')
 
-def process_inverters():
+def process_inverters(now):
     for inverter in inverters:
         # If this inverter errored then we wait a bit before trying again
         if inverter['error_sleep'] > 0:
@@ -68,7 +68,7 @@ def process_inverters():
 
         growatt = inverter['growatt']
         try:
-            now = time.time()
+#            now = time.time()
             info = growatt.read()
 
             if info is None:
@@ -92,7 +92,7 @@ def process_inverters():
 
 def on_message(client, userdata, message):
     payload = str(message.payload.decode("utf-8"))
-    print("message received ", payload)
+    print("message received ", datetime.now().isoformat(timespec='seconds'), payload)
     mqtt_message = json.loads(payload)
     energy = mqtt_message["ENERGY"]
     energy_parsed = {}
@@ -114,7 +114,7 @@ def on_message(client, userdata, message):
     if not influx.write_points(points, time_precision='s'):
         print("Failed to write to DB!")
 
-    process_inverters()
+    process_inverters(now)
 
 def on_log(client, userdata, level, buf):
     print("log: ",buf)
@@ -128,3 +128,9 @@ mqttclient.connect(broker_address) #connect to broker
 mqttclient.loop_start() #start the loop
 mqttclient.subscribe(mqtt_subscribe)
 print('Done with MQTT!')
+# mqttclient.loop_forever()
+
+while True:
+    time.sleep(offline_interval)
+
+
