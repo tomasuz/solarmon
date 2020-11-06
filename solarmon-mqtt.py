@@ -57,9 +57,10 @@ for section in settings.sections():
     name = section[10:]
     unit = int(settings.get(section, 'unit'))
     measurement = settings.get(section, 'measurement')
+    growatt = None
     try:
         growatt = Growatt(client, name, unit)
-    except pymodbus.exceptions.ModbusIOException as err:
+    except Exception as err:
         print(err)
 
     inverters.append({
@@ -101,7 +102,7 @@ def process_inverters(now):
             if not influx.write_points(points, time_precision='s'):
                 print("Failed to write to DB!")
         except Exception as err:
-            print(growatt.name)
+            print(inverter['name'])
             print(err)
             inverter['error_sleep'] = error_interval
     return info
