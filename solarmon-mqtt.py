@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 import time
+from datetime import datetime
 import os
 import json
+from decimal import *
+getcontext().prec = 2
 
 from configparser import RawConfigParser
 from influxdb import InfluxDBClient
@@ -24,6 +27,10 @@ measurement = settings.get('influx', 'measurement', fallback='inverter')
 broker_address = settings.get('mqtt', 'broker_address', fallback='iot.eclipse.org')
 mqtt_subscribe = settings.get('mqtt', 'subscribe', fallback='iot.eclipse.org')
 mqtt_measurement = settings.get('mqtt', 'measurement', fallback='grid')
+
+lastgrowattpower = Decimal('0.0')
+lastgridpower = Decimal('0.0')
+powerdirection = 1 # 1 - consume power from grid, -1 - supply power to grid.
 
 # Clients
 print('Setup InfluxDB Client... ', end='')
@@ -60,6 +67,7 @@ for section in settings.sections():
 print('Done!')
 
 def process_inverters(now):
+    info = None
     for inverter in inverters:
         # If this inverter errored then we wait a bit before trying again
         if inverter['error_sleep'] > 0:
@@ -69,11 +77,12 @@ def process_inverters(now):
         growatt = inverter['growatt']
         try:
 #            now = time.time()
+            print(datetime.now().isoformat(timespec='milliseconds'))
             info = growatt.read()
 
             if info is None:
                 continue
-
+           
             points = [{
                 'time': int(now),
                 'measurement': inverter['measurement'],
@@ -81,7 +90,7 @@ def process_inverters(now):
             }]
 
             print(growatt.name)
-            print(points)
+            print(info)
 
             if not influx.write_points(points, time_precision='s'):
                 print("Failed to write to DB!")
@@ -89,10 +98,19 @@ def process_inverters(now):
             print(growatt.name)
             print(err)
             inverter['error_sleep'] = error_interval
+    return info
 
 def on_message(client, userdata, message):
+    global lastgrowattpower
+    global lastgridpower
+    global powerdirection
+    getcontext().prec = 2
+
+    now = time.time()
+    growattinfo = process_inverters(now)
+
     payload = str(message.payload.decode("utf-8"))
-    print("message received ", datetime.now().isoformat(timespec='seconds'), payload)
+    print("message received ", payload)
     mqtt_message = json.loads(payload)
     energy = mqtt_message["ENERGY"]
     energy_parsed = {}
@@ -104,8 +122,43 @@ def on_message(client, userdata, message):
                 energy_parsed[k] = float(v)
             except ValueError:
                 payload = payload
+
+    if growattinfo is None:
+        lastgrowattpower = Decimal('0.0')
+        powerdirection = 1
+    else:
+        growattpower = Decimal(growattinfo['Pac'])
+        gridpower = Decimal(energy_parsed['Power'])
+        growattpowerdiff = growattpower - lastgrowattpower
+        gridpowerdiff = gridpower - lastgridpower
+        print('growattpowerdiff ', growattpowerdiff, 'gridpowerdiff ', gridpowerdiff)
+        # If increased growatt power generation increses grid power - we are supplying power to grid:
+        if (growattpower < gridpower):
+            powerdirection = 1
+        elif (growattpowerdiff > 0 and gridpowerdiff > 0):
+            powerdirection = -1
+        # If decresed growwat power generation increases grid power - we are also supplying power to grid:
+        elif (growattpowerdiff < 0 and gridpowerdiff < 0):
+            powerdirection = -1
+        # if power value does not changed - leave as is
+        elif (growattpowerdiff == 0 or gridpowerdiff == 0):
+            powerdirection = powerdirection
+        else:
+            powerdirection = 1
         
-    now = time.time()
+        lastgrowattpower = Decimal(growattinfo['Pac'])
+        lastgridpower = Decimal(energy_parsed['Power'])
+        # publish growatt info to mqtt broker also. 
+        mqttmessage = {}
+        mqttmessage["Time"] = datetime.now().isoformat(timespec='milliseconds')
+        mqttmessage["ENERGY"] = growattinfo
+        try:
+            mqttclient.publish("tele/growatt/SENSOR",json.dumps(mqttmessage)) #publish
+        except:
+            mqttclient.connect(broker_address) # reconect if connection lost.
+            mqttclient.publish("tele/growatt/SENSOR",json.dumps(mqttmessage)) #publish
+    energy_parsed['powerdirection'] = powerdirection
+        
     points = [{
         'time': int(now),
         'measurement': mqtt_measurement,
@@ -113,8 +166,6 @@ def on_message(client, userdata, message):
     }]
     if not influx.write_points(points, time_precision='s'):
         print("Failed to write to DB!")
-
-    process_inverters(now)
 
 def on_log(client, userdata, level, buf):
     print("log: ",buf)
