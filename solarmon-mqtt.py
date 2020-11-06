@@ -57,10 +57,15 @@ for section in settings.sections():
     name = section[10:]
     unit = int(settings.get(section, 'unit'))
     measurement = settings.get(section, 'measurement')
-    growatt = Growatt(client, name, unit)
-    growatt.print_info()
+    try:
+        growatt = Growatt(client, name, unit)
+    except pymodbus.exceptions.ModbusIOException as err:
+        print(err)
+
     inverters.append({
         'error_sleep': 0,
+        'name': name,
+        'unit': unit,
         'growatt': growatt,
         'measurement': measurement
     })
@@ -76,7 +81,8 @@ def process_inverters(now):
 
         growatt = inverter['growatt']
         try:
-#            now = time.time()
+            if growatt is None:
+                growatt = Growatt(client, inverter['name'], inverter['unit']) 
             print(datetime.now().isoformat(timespec='milliseconds'))
             info = growatt.read()
 
