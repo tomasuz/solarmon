@@ -29,6 +29,8 @@ mqtt_subscribe_pzem = settings.get('mqtt', 'subscribe-pzem', fallback='tele/pzem
 mqtt_subscribe_growatt = settings.get('mqtt', 'subscribe-growatt', fallback='tele/growatt/SENSOR')
 mqtt_measurement = settings.get('mqtt', 'measurement', fallback='grid')
 
+vdiffarr = [0.0] * 5
+
 lastgrowattpower = Decimal('0.0')
 lastgridpower = Decimal('0.0')
 powerdirection = 1 # 1 - consume power from grid, -1 - supply power to grid.
@@ -112,6 +114,8 @@ def on_message(client, userdata, message):
     global lastgrowattpower
     global lastgridpower
     global powerdirection
+    global vdiffarr
+    
     getcontext().prec = 2
 
     now = time.time()
@@ -131,10 +135,19 @@ def on_message(client, userdata, message):
             except ValueError:
                 payload = payload
 
-    if growattinfo is None:
+    gridvoltage = Decimal(energy_parsed['Voltage'])
+    growattvoltage = gridvoltage
+    if growattinfo is None:        
         lastgrowattpower = Decimal('0.0')
         powerdirection = 1
     else:
+        growattvoltage = Decimal(growattinfo['Vac1'])       
+        
+        vdiffarr = vdiffarr[1:]+vdiffarr[:1]
+        print("rotated", vdiffarr)
+        vdiffarr[len(vdiffarr)-1] = float(growattvoltage - gridvoltage)
+        print("updated", vdiffarr)
+        
         growattpower = Decimal(growattinfo['Pac'])
         gridpower = Decimal(energy_parsed['Power'])
         growattpowerdiff = growattpower - lastgrowattpower
@@ -163,9 +176,12 @@ def on_message(client, userdata, message):
         try:
             mqttclient.publish(mqtt_subscribe_growatt,json.dumps(mqttmessage)) #publish
         except:
+            print("Failed to publish mqtt message to broker!")
             mqttclient.connect(broker_address) # reconect if connection lost.
             mqttclient.publish(mqtt_subscribe_growatt,json.dumps(mqttmessage)) #publish
     energy_parsed['powerdirection'] = powerdirection
+    energy_parsed['voltagediff'] = float(growattvoltage - gridvoltage)
+    energy_parsed['voltagediffmean'] = sum(vdiffarr) / len(vdiffarr)
         
     points = [{
         'time': int(now),
@@ -182,7 +198,7 @@ def on_log(client, userdata, level, buf):
 print('Setup mqtt Connection... ', end='')
 mqttclient = mqtt.Client("SOLARMON")
 mqttclient.on_message=on_message #attach function to callback
-mqttclient.on_log=on_log
+# mqttclient.on_log=on_log
 mqttclient.connect(broker_address) #connect to broker
 mqttclient.loop_start() #start the loop
 mqttclient.subscribe(mqtt_subscribe_pzem)
