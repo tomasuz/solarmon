@@ -25,7 +25,8 @@ db_name = settings.get('influx', 'db_name', fallback='inverter')
 measurement = settings.get('influx', 'measurement', fallback='inverter')
 
 broker_address = settings.get('mqtt', 'broker_address', fallback='iot.eclipse.org')
-mqtt_subscribe = settings.get('mqtt', 'subscribe', fallback='iot.eclipse.org')
+mqtt_subscribe_pzem = settings.get('mqtt', 'subscribe-pzem', fallback='tele/pzem004t/SENSOR')
+mqtt_subscribe_growatt = settings.get('mqtt', 'subscribe-growatt', fallback='tele/growatt/SENSOR')
 mqtt_measurement = settings.get('mqtt', 'measurement', fallback='grid')
 
 lastgrowattpower = Decimal('0.0')
@@ -160,10 +161,10 @@ def on_message(client, userdata, message):
         mqttmessage["Time"] = datetime.now().isoformat(timespec='milliseconds')
         mqttmessage["ENERGY"] = growattinfo
         try:
-            mqttclient.publish("tele/growatt/SENSOR",json.dumps(mqttmessage)) #publish
+            mqttclient.publish(mqtt_subscribe_growatt,json.dumps(mqttmessage)) #publish
         except:
             mqttclient.connect(broker_address) # reconect if connection lost.
-            mqttclient.publish("tele/growatt/SENSOR",json.dumps(mqttmessage)) #publish
+            mqttclient.publish(mqtt_subscribe_growatt,json.dumps(mqttmessage)) #publish
     energy_parsed['powerdirection'] = powerdirection
         
     points = [{
@@ -184,7 +185,7 @@ mqttclient.on_message=on_message #attach function to callback
 mqttclient.on_log=on_log
 mqttclient.connect(broker_address) #connect to broker
 mqttclient.loop_start() #start the loop
-mqttclient.subscribe(mqtt_subscribe)
+mqttclient.subscribe(mqtt_subscribe_pzem)
 print('Done with MQTT!')
 # mqttclient.loop_forever()
 

@@ -5,7 +5,8 @@ db_name = inverter
 
 [mqtt]
 broker_address = 192.168.12.5
-subscribe = tele/pzem004t/SENSOR
+subscribe-pzem = tele/pzem004t/SENSOR
+subscribe-growatt = tele/growatt/SENSOR
 measurement = grid
 
 [query]
