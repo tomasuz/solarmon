@@ -182,6 +182,8 @@ def on_message(client, userdata, message):
     energy_parsed['powerdirection'] = powerdirection
     energy_parsed['voltagediff'] = float(growattvoltage - gridvoltage)
     energy_parsed['voltagediffmean'] = sum(vdiffarr) / len(vdiffarr)
+    energy_parsed['gridpowerdiff'] = float(gridpowerdiff)
+    energy_parsed['growattpowerdiff'] = float(growattpowerdiff)
         
     points = [{
         'time': int(now),
