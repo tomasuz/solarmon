@@ -5,13 +5,14 @@ Created on 2020-10-03
 
 @author: tomas
 '''
-
+import os
 import pymodbus
 import serial
 import math
 import paho.mqtt.client as mqtt
 import json
 import schedule
+import atexit
 
 from pymodbus.pdu import ModbusRequest
 from pymodbus.client.sync import ModbusSerialClient as ModbusClient
@@ -20,12 +21,12 @@ from time import sleep
 from datetime import datetime
 
 def setCounter():
-    energy_value_at_time=float(0.0)
+    energy_value_at_time = energy_value
     print("Reseting energy_value...")
     
 def setCounterAtMidnight():
     energy_value_yesterday = energy_value - energy_value_at_midnight
-    energy_value_at_midnight=float(0.0)
+    energy_value_at_midnight = energy_value
     print("Reseting midnight energy_value...")
 
 def calc (registers, factor):
@@ -54,6 +55,7 @@ def read (client):
     print ('Current value: ' + calc (result.registers[1:3], 1000) + 'A')
     print ('Power value: ' + calc (result.registers[3:5], 10) + 'W')
     print ('Energy value: ' + (calc (result.registers[5:7], 1000)) + 'kWh')
+    print ('Energy value at time: ' + format % (calc_float(result.registers[5:7], 1000) - energy_value_at_time) + 'kWh')
     print ('Energy value today: ' + format % (calc_float(result.registers[5:7], 1000) - energy_value_at_midnight) + 'kWh')
     print ('Frequency value: ' + calc (result.registers[7:8], 10) + 'Hz')
     print ('Power factor value: ' + calc (result.registers[8:9], 100))
@@ -89,12 +91,35 @@ def on_message(client, userdata, message):
 def on_log(client, userdata, level, buf):
     print("log: ",buf)
 
+def savestate():
+    format = '%%0.%df\n' % int (math.ceil (math.log10 (1000)))
+    with open("pzem-004t_mqtt_state.dat", "w") as statefile:
+        statefile.write(format % energy_value_at_time)
+        statefile.write(format % energy_value_at_midnight)
+        statefile.write(format % energy_value_yesterday)
+
 broker_address="mqtt.xn--martiiai-9wb.lt"
 
 energy_value=float(0.0)
 energy_value_at_time=float(0.0)
 energy_value_at_midnight=float(0.0)
 energy_value_yesterday=float(0.0)
+
+mode = 'r' if os.path.exists('pzem-004t_mqtt_state.dat') else 'w+'
+with open("pzem-004t_mqtt_state.dat", mode) as statefile:
+    index = 0
+    for line in statefile.readlines():
+        if line.strip():
+            index = index + 1
+            if index == 1:
+                energy_value_at_time = float(line)
+            elif index == 2:
+                energy_value_at_midnight = float(line)
+            elif index == 3:
+                energy_value_yesterdy = float(line)
+
+atexit.register(savestate)
+
 #broker_address="iot.eclipse.org" #use external broker
 mqttclient = mqtt.Client("P1") #create new instance
 # mqttclient.on_message=on_message #attach function to callback
@@ -127,18 +152,13 @@ client = ModbusClient (method = "rtu", port="/dev/ttyUSB1", stopbits = 1, bytesi
 
 #Connect to the serial modbus server
 connection = client.connect()
-if client.connect ():
+if client.connect():
   try:
     while True:
       mqttmessage = {}
       mqttmessage["Time"] = datetime.now().isoformat(timespec='milliseconds')
       readresult = read(client)
       energy_value = calc_float(readresult.registers[5:7], 1000)
-      if energy_value_at_time == float(0.0):
-        energy_value_at_time = energy_value
-      if energy_value_at_midnight == float(0.0):
-        energy_value_at_midnight = energy_value
-
       mqttmessage["ENERGY"] = energyjson(readresult)
       try:
         mqttclient.publish("tele/pzem004t/SENSOR",json.dumps(mqttmessage)) #publish
