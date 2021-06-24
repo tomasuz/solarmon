@@ -20,6 +20,11 @@ from pymodbus.transaction import ModbusRtuFramer
 from time import sleep
 from datetime import datetime
 
+energy_value=float(0.0)
+energy_value_at_time=float(0.0)
+energy_value_at_midnight=float(0.0)
+energy_value_yesterday=float(0.0)
+
 def setCounter():
     energy_value_at_time = energy_value
     print("Reseting energy_value...")
@@ -100,11 +105,6 @@ def savestate():
 
 broker_address="mqtt.xn--martiiai-9wb.lt"
 
-energy_value=float(0.0)
-energy_value_at_time=float(0.0)
-energy_value_at_midnight=float(0.0)
-energy_value_yesterday=float(0.0)
-
 mode = 'r' if os.path.exists('pzem-004t_mqtt_state.dat') else 'w+'
 with open("pzem-004t_mqtt_state.dat", mode) as statefile:
     index = 0
@@ -152,9 +152,13 @@ client = ModbusClient (method = "rtu", port="/dev/ttyUSB1", stopbits = 1, bytesi
 
 #Connect to the serial modbus server
 connection = client.connect()
-if client.connect():
-  try:
-    while True:
+#if client.connect():
+try:
+  while True:
+    schedule.run_pending()
+    if not connection:
+      connection = client.connect()
+    if connection:
       mqttmessage = {}
       mqttmessage["Time"] = datetime.now().isoformat(timespec='milliseconds')
       readresult = read(client)
@@ -166,7 +170,11 @@ if client.connect():
         mqttclient.connect(broker_address) # reconect if connection lost.
         mqttclient.publish("tele/pzem004t/SENSOR",json.dumps(mqttmessage)) #publish
       sleep(2)
-  finally:
-    client.close()
+    else:
+      print("ERROR! Connection to ModbusClient failed!")
+      sleep(30)
+    #end if
+finally:
+  client.close()
 #end try
-#end if
+
